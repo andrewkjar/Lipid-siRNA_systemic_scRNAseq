@@ -1,0 +1,287 @@
+# Purpose: analyze effects of siRNA on murine central nervous system cells
+
+# RUN PIPSEEKER ALIGNMENT AT COMPUTE CLUSTER, WRITTEN IN LINUX COMMAND LINE
+# In the following code, file paths have been replaced with ~
+# Be sure to substitute for true file locations before running
+# The raw FASTQ files used in this analysis are located at E-MTAB-XXXX
+# Note that the processed Seurat object is also available at E-MTAB-XXXX and can be used for visualizations without re-running alignment, quality control, and annotation steps
+~/pipseeker full --fastq 11734-AK-0003_S1_L005_ --star-index-path ~/pipseeker-gex-reference-GRCm39-2022.04 --output-path 11734-AK-0003_S1_L005_results --force-cells 10000 --skip-version-check
+~/pipseeker full --fastq 11734-AK-0005_S1_L005_ --star-index-path ~/pipseeker-gex-reference-GRCm39-2022.04 --output-path 11734-AK-0005_S1_L005_results --force-cells 10000 --skip-version-check
+
+# BEGIN R DATA ANALYSIS
+# Import libraries
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(ggprism)
+
+# Import data
+so.1.data <- Read10X("~/11734-AK-0003_S1_L005_results/filtered_matrix/force_10000")
+so.1 <- CreateSeuratObject(counts = so.1.data, min.cells = 3, min.features = 200)
+so.1$orig.ident <- 'NTC'
+rm(so.1.data)
+
+so.2.data <- Read10X("~/11734-AK-0005_S1_L005_results/filtered_matrix/force_10000")
+so.2 <- CreateSeuratObject(counts = so.2.data, min.cells = 3, min.features = 200)
+so.2$orig.ident <- 'PPIB'
+rm(so.2.data)
+
+# Merge datasets
+so.combined <- merge(so.1, y = c(so.2))
+so.combined.subset <- subset(so.combined, nFeature_RNA > 1000 & nFeature_RNA < 7500)
+
+# Process data, do dimension reduction
+so.combined.subset <- NormalizeData(so.combined.subset)
+so.combined.subset <- FindVariableFeatures(so.combined.subset, selection.method = "vst", nfeatures = 2000)
+so.combined.subset <- ScaleData(so.combined.subset, verbose = FALSE)
+so.combined.subset <- RunPCA(so.combined.subset, npcs = 50, verbose = FALSE)
+so.combined.subset <- RunUMAP(so.combined.subset, reduction = "pca", dims = 1:50)
+so.combined.subset <- FindNeighbors(so.combined.subset, reduction = "pca", dims = 1:50)
+so.combined.subset <- FindClusters(so.combined.subset, resolution = 2)
+
+# Annotate cells
+so.combined.subset$cell_type <- so.combined.subset$seurat_clusters
+so.combined.subset$cell_type <- recode(so.combined.subset$cell_type,
+                                       "0" = "Oligodendrocytes",
+                                       "1" = "EC (Capillary)",
+                                       "2" = "ChP",
+                                       "3" = "EC (Arterial)",
+                                       "4" = "Microglia",
+                                       "5" = "Astrocytes",
+                                       "6" = "Microglia",
+                                       "7" = "Microglia",
+                                       "8" = "Microglia",
+                                       "9" = "Microglia",
+                                       "10" = "Microglia",
+                                       "11" = "Astrocytes",
+                                       "12" = "Astrocytes",
+                                       "13" = "Ependymal cells",
+                                       "14" = "ChP",
+                                       "15" = "Ependymal cells",
+                                       "16" = "Oligodendrocytes",
+                                       "17" = "Neurons",
+                                       "18" = "Bergmann glia",
+                                       "19" = "Oligodendrocytes",
+                                       "20" = "Dural border cells",
+                                       "21" = "SMC",
+                                       "22" = "Olfactory ensheathing cells",
+                                       "23" = "Macrophages (MHCII)",
+                                       "24" = "Neurons",
+                                       "25" = "Macrophages (Lyve1)",
+                                       "26" = "EC (Venous)",
+                                       "27" = "Oligodendrocytes",
+                                       "28" = "Pericytes",
+                                       "29" = "Astrocytes",
+                                       "30" = "doublet",
+                                       "31" = "Parenchymal perivascular fibroblasts",
+                                       "32" = "Neurons",
+                                       "33" = "EC",
+                                       "34" = "Neural IPCs",
+                                       "35" = "doublet",
+                                       "36" = "Neurons",
+                                       "37" = "Neurons",
+                                       "38" = "Bergmann glia",
+                                       "39" = "doublet",
+                                       "40" = "EC",
+                                       "41" = "Neurons",
+                                       "42" = "unknown",
+                                       "43" = "Neurons",
+                                       "44" = "doublet",
+                                       "45" = "Neurons",
+                                       "46" = "EC")
+
+# Re-process with doublets removed
+so.combined.subset.no_double <- subset(so.combined.subset, cell_type != 'doublet')
+so.combined.subset.no_double <- NormalizeData(so.combined.subset.no_double)
+so.combined.subset.no_double <- FindVariableFeatures(so.combined.subset.no_double, selection.method = "vst", nfeatures = 2000)
+so.combined.subset.no_double <- ScaleData(so.combined.subset.no_double, verbose = FALSE)
+so.combined.subset.no_double <- RunPCA(so.combined.subset.no_double, npcs = 50, verbose = FALSE)
+so.combined.subset.no_double <- RunUMAP(so.combined.subset.no_double, reduction = "pca", dims = 1:50)
+so.combined.subset.no_double <- FindNeighbors(so.combined.subset.no_double, reduction = "pca", dims = 1:50)
+so.combined.subset.no_double <- FindClusters(so.combined.subset.no_double, resolution = 2)
+
+# Annotate cells
+so.combined.subset.no_double$cell_type <- so.combined.subset.no_double$seurat_clusters
+so.combined.subset.no_double$cell_type <- recode(so.combined.subset.no_double$cell_type,
+                                       "0" = "Endothelial cells (Capillary)",
+                                       "1" = "Oligodendrocytes",
+                                       "2" = "Choroid plexus epithelial cells",
+                                       "3" = "Microglia",
+                                       "4" = "Microglia",
+                                       "5" = "Astrocytes",
+                                       "6" = "Microglia",
+                                       "7" = "Microglia",
+                                       "8" = "Oligodendrocytes",
+                                       "9" = "Microglia",
+                                       "10" = "Oligodendrocytes",
+                                       "11" = "Endothelial cells (Venous)",
+                                       "12" = "Astrocytes",
+                                       "13" = "Ependymal cells",
+                                       "14" = "Choroid plexus epithelial cells",
+                                       "15" = "Astrocytes",
+                                       "16" = "Microglia",
+                                       "17" = "Ependymal cells",
+                                       "18" = "Endothelial cells (Arterial)",
+                                       "19" = "Neurons",
+                                       "20" = "Bergmann glia",
+                                       "21" = "Dural border cells",
+                                       "22" = "Smooth muscle cells",
+                                       "23" = "Astrocytes",
+                                       "24" = "Olfactory ensheathing cells",
+                                       "25" = "Macrophages",
+                                       "26" = "Neurons",
+                                       "27" = "Oligodendrocytes",
+                                       "28" = "Macrophages",
+                                       "29" = "Pericytes",
+                                       "30" = "Parenchymal perivascular fibroblasts",
+                                       "31" = "Neural IPCs",
+                                       "32" = "EC",
+                                       "33" = "Neural IPCs",
+                                       "34" = "Neurons",
+                                       "35" = "Neurons",
+                                       "36" = "Bergmann glia",
+                                       "37" = "Neurons",
+                                       "38" = "unknown",
+                                       "39" = "Neurons",
+                                       "40" = "Microglia",
+                                       "41" = "EC",
+                                       "42" = "Neurons",
+                                       "43" = "EC",
+                                       "44" = "EC")
+
+so.combined.cleaned <- subset(so.combined.subset.no_double, cell_type != 'EC') # EC clusters are additional doublet populations that we retained in first pass
+so.combined.cleaned <- subset(so.combined.cleaned, cell_type != 'unknown')
+
+# Define an order of sample identities
+sample_levels <- c(
+  'Endothelial cells (Venous)', 'Endothelial cells (Capillary)', 'Endothelial cells (Arterial)', 
+  'Choroid plexus epithelial cells', 'Dural border cells', 'Parenchymal perivascular fibroblasts', 
+  'Olfactory ensheathing cells', 'Smooth muscle cells', 'Microglia', 'Macrophages', 'Pericytes',
+  'Neurons','Neural IPCs', 'Oligodendrocytes', 'Ependymal cells', 'Astrocytes', 'Bergmann glia'
+)
+so.combined.cleaned$cell_type <- factor(x = so.combined.cleaned$cell_type, levels = sample_levels)
+
+# Save Seurat object
+saveRDS(so.combined.cleaned, "2025.01.23_11734_seurat_object.RDS")
+
+### VISUALIZATIONS
+pdf("2025.01.23_UMAP.pdf", width = 8, height = 8)
+DimPlot(so.combined.cleaned, group.by = 'cell_type')
+DimPlot(so.combined.cleaned, group.by = 'cell_type') + NoLegend()
+DimPlot(so.combined.cleaned, group.by = 'orig.ident', cols = c('#C1CDCD90', '#AB82FF90'))
+DimPlot(so.combined.cleaned, group.by = 'orig.ident', cols = c('#C1CDCD90', '#AB82FF90')) + NoLegend()
+
+pdf("2025.01.23_QC_violin_plots.pdf", height = 4, width = 4)
+VlnPlot(so.combined.cleaned, group.by = 'orig.ident', cols = c('#C1CDCD90', '#AB82FF90'), features = 'nFeature_RNA', pt.size = 0)
+VlnPlot(so.combined.cleaned, group.by = 'orig.ident', cols = c('#C1CDCD90', '#AB82FF90'), features = 'nCount_RNA', pt.size = 0)
+
+pdf("2025.01.23_marker_DotPlot.pdf", width = 15, height = 8)
+DotPlot(so.combined.cleaned, group.by = 'cell_type', features = c(
+  'Gdf10','Timp4','Hopx','Id4',
+  'Slc7a11','Fgfr3','Agt','Slc6a11',
+  'Ccdc153','Tmem212','Hdc','Dynlrb2',
+  'Opalin','Ninj2','Mal','Mog',
+  'Cdca7','Rrm2','Ube2c','Top2a',
+  'Birc5','Map2','NeuN','Snap25',
+  'Kcnj8','Higd1b','Rgs5',
+  'Cd163','Cd68','Lyve1',
+  'Itgam','Trem2',
+  'Acta2','Mustn1','Tagln','Myh11',
+  'Prss56','Clca3a1','Fabp7','Frzb',
+  'Dcn','Col1a1','Lama1','Col15a1',
+  'Slc47a1','Crabp2','Fxyd5',
+  'Ttr','Folr1','Clicb',
+  'Ly6c1','Cldn5','Ly6a','Pltp','Flt1','Degs2','Hey1','Bmx','Sema3g','Slc16a2','Car4','Mfsd2a','Icam1','Slc38a5','Vwf'
+)) + 
+        scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1")  + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+
+## Loop through all cell populations for most visualizations
+# Initialize an empty data frame to store the results
+results_matrix <- data.frame(
+  cell_type = character(),
+  gene = character(),
+  p_value = numeric(),
+  avg_log2FC = numeric(),
+  p_value_adj = numeric(),
+  avg_expr_NTC = numeric(),
+  avg_expr_PPIB = numeric(),
+  stringsAsFactors = FALSE
+)
+
+Idents(so.combined.cleaned) <- so.combined.cleaned$orig.ident
+
+# Extract list of cell types, and intialize empty list
+unique_cell_types <- unique(as.character(so.combined.cleaned$cell_type))
+results <- list()
+
+# Loop through each cell type
+for (current_cell_type in unique_cell_types) {
+  print(current_cell_type)
+  
+  cairo_pdf(paste0("2025.01.23_volcano_plot_", current_cell_type, ".pdf"), width = 6, height = 6)
+
+  DEGs <- FindMarkers(subset(so.combined.cleaned, cell_type == current_cell_type), ident.1 = 'NTC')
+  DEGs$gene <- rownames(DEGs)
+  results[[current_cell_type]] <- DEGs
+  
+  # Calculate the average expression of "Ppib" for "NTC" and "PPIB"
+  avg_expr_NTC <- mean(GetAssayData(subset(so.combined.cleaned, cell_type == current_cell_type & orig.ident == 'NTC'), assay = "RNA", slot = "data")["Ppib", ])
+  avg_expr_PPIB <- mean(GetAssayData(subset(so.combined.cleaned, cell_type == current_cell_type & orig.ident == 'PPIB'), assay = "RNA", slot = "data")["Ppib", ])
+  
+  # Check if 'Ppib' is in the list of DEGs for the current cell type
+  pval_ppib <- NA
+  logFC_ppib <- NA
+  pval_ppib_adj <- NA
+  if ('Ppib' %in% DEGs$gene) {
+    pval_ppib <- DEGs["Ppib",]$p_val
+    pval_ppib_adj <- DEGs["Ppib",]$p_val_adj
+    logFC_ppib <- DEGs["Ppib",]$avg_log2FC
+  }
+  
+  
+  # Store these values in the results_matrix
+  results_matrix <- rbind(results_matrix, data.frame(
+    cell_type = current_cell_type,
+    gene = "Ppib",
+    p_value = pval_ppib,
+    avg_log2FC = logFC_ppib,
+    p_value_adj = pval_ppib_adj,
+    avg_expr_NTC = avg_expr_NTC,
+    avg_expr_PPIB = avg_expr_PPIB
+  ))
+
+
+  # Plotting code
+  DEGs <- subset(DEGs, p_val_adj < 0.05)
+  if (length(DEGs$p_val) > 0) {
+    DEGs$log10_pvalue <- -1 * log10(DEGs$p_val_adj)
+    DEGs$log10_pvalue[DEGs$log10_pvalue == Inf] <- 300
+    DEGs$gene <- rownames(DEGs)
+    DEGs$color <- 'black'
+    DEGs <- DEGs %>%
+      mutate(color = ifelse(gene == "Ppib", "red", color))
+
+    plot <- ggplot(DEGs, aes(x = -1 * avg_log2FC, y = log10_pvalue)) +
+      geom_point(aes(color = color)) +
+      scale_color_manual(values = c('black', 'red')) +
+      geom_text_repel(data = subset(DEGs, gene == "Ppib"), aes(label = gene), nudge_y = 50, nudge_x = 0) +
+      theme_prism() +
+      NoLegend() +
+      ggtitle(current_cell_type) +
+      xlab("Log 2 Fold Change") +
+      ylab("Log 10 Adjusted P Value")
+    
+    print(plot)
+    dev.off()
+    
+  cairo_pdf(paste0("2025.01.23_ridgeline_plot_", current_cell_type, ".pdf"), width = 6, height = 4)  
+  plot <- RidgePlot(subset(so.combined.cleaned, cell_type == current_cell_type), features = 'Ppib', cols = c('#C1CDCD90', '#AB82FF90')) + theme_prism() + ggtitle(current_cell_type)
+  print(plot)
+  dev.off()
+  }
+}
+
+# Write out the matrix to a CSV at the end of the analysis
+write.csv(results_matrix, "2025.01.23_DEG_results_matrix_with_expression.csv")
