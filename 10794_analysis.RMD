@@ -1,0 +1,187 @@
+# Purpose: analyze effects of siRNA on murine choroid plexus cells
+
+# RUN PIPSEEKER ALIGNMENT AT COMPUTE CLUSTER, WRITTEN IN LINUX COMMAND LINE
+# In the following code, file paths have been replaced with ~
+# Be sure to substitute for true file locations before running
+# The raw FASTQ files used in this analysis are located at E-MTAB-XXXX
+# Note that the processed Seurat object is also available at E-MTAB-XXXX and can be used for visualizations without re-running alignment, quality control, and annotation steps
+~/pipseeker full --fastq 10794-AK-0001_S1_L005_ --star-index-path ~/pipseeker-gex-reference-GRCm39-2022.04 --output-path 10794-AK-0001_S1_L005_results
+~/pipseeker full --fastq 10794-AK-0002_S1_L005_ --star-index-path ~/pipseeker-gex-reference-GRCm39-2022.04 --output-path 10794-AK-0002_S1_L005_results
+
+# Import libraries
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+
+# Import datasets
+so.1.data <- Read10X("~/10794-AS-0001_S1_L005_results/filtered_matrix/sensitivity_5")
+so.1 <- CreateSeuratObject(counts = so.1.data, min.cells = 3, min.features = 200)
+so.1$orig.ident <- 'LUC'
+rm(so.1.data)
+
+so.2.data <- Read10X("~/10794-AS-0002_S1_L005_results/filtered_matrix/sensitivity_5")
+so.2 <- CreateSeuratObject(counts = so.2.data, min.cells = 3, min.features = 200)
+so.2$orig.ident <- 'PPIB'
+rm(so.2.data)
+
+# Merge datasets
+so.combined <- merge(so.1, y = c(so.2))
+
+# Do initial filtering based on mitochondrial percentage and number of features
+so.combined[["percent.mt"]] <- PercentageFeatureSet(so.combined, pattern = "mt")
+so.combined.cleaned <- subset(so.combined, subset = nFeature_RNA > 800 & nFeature_RNA < 9000 & percent.mt < 15)
+
+# Process data, do dimension reduction
+so.combined.cleaned <- NormalizeData(so.combined.cleaned)
+so.combined.cleaned <- FindVariableFeatures(so.combined.cleaned, selection.method = "vst", nfeatures = 2000)
+so.combined.cleaned <- ScaleData(so.combined.cleaned, verbose = FALSE)
+so.combined.cleaned <- RunPCA(so.combined.cleaned, npcs = 50, verbose = FALSE)
+so.combined.cleaned <- RunUMAP(so.combined.cleaned, reduction = "pca", dims = 1:50)
+so.combined.cleaned <- FindNeighbors(so.combined.cleaned, reduction = "pca", dims = 1:50)
+so.combined.cleaned <- FindClusters(so.combined.cleaned, resolution = 3)
+
+# Annotate cells
+so.combined.cleaned$cell_type <- so.combined.cleaned$RNA_snn_res.3
+so.combined.cleaned$cell_type <- recode(so.combined.cleaned$cell_type,
+                                        "0" = "Epithelial",
+                                        "1" = "Epithelial",
+                                        "2" = "Epithelial",
+                                        "3" = "Epithelial",
+                                        "4" = "Epithelial",
+                                        "5" = "Epithelial",
+                                        "6" = "Epithelial",
+                                        "7" = "Epithelial",
+                                        "8" = "Epithelial",
+                                        "9" = "Epithelial",
+                                        "10" = "Epithelial",
+                                        "11" = "Epithelial",
+                                        "12" = "Epithelial",
+                                        "13" = "Epithelial",
+                                        "14" = "Epithelial",
+                                        "15" = "Epithelial",
+                                        "16" = "Epithelial",
+                                        "17" = "Epithelial",
+                                        "18" = "Epithelial",
+                                        "19" = "Epithelial",
+                                        "20" = "Epithelial",
+                                        "21" = "Epithelial",
+                                        "22" = "Epithelial",
+                                        "23" = "Epithelial",
+                                        "24" = "Epithelial",
+                                        "25" = "Immune",
+                                        "26" = "Endothelial",
+                                        "27" = "Mesenchymal",
+                                        "28" = "Neuronal Glial",
+                                        "29" = "Epithelial",
+                                        "30" = "Epithelial")
+
+levels <- c('Epithelial','Mesenchymal','Endothelial','Immune','Neuronal Glial')
+so.combined.cleaned$cell_type <- factor(x = so.combined.cleaned$cell_type, levels = levels)
+
+# Save RDS
+saveRDS(so.combined.cleaned, "2024.07.10_10794_AS_seurat_object.RDS")
+
+so.ChP <- so.combined.cleaned
+
+pdf("2025.01.23_UMAP.pdf", width = 4, height = 4)
+DimPlot(so.ChP, group.by = 'cell_type')
+DimPlot(so.ChP, group.by = 'cell_type') + NoLegend()
+DimPlot(so.ChP, group.by = 'orig.ident', cols = c('#C1CDCD90', '#AB82FF90')) 
+DimPlot(so.ChP, group.by = 'orig.ident', cols = c('#C1CDCD90', '#AB82FF90')) + NoLegend()
+
+pdf("2025.01.23_QC_violin_plots_ChP.pdf", height = 4, width = 4)
+VlnPlot(so.ChP, features = 'nCount_RNA', pt.size = 0, cols = c('#C1CDCD90', '#AB82FF90'))
+VlnPlot(so.ChP, features = 'nFeature_RNA', pt.size = 0, cols = c('#C1CDCD90', '#AB82FF90'))
+
+pdf("2025.01.23_marker_DotPlot_ChP.pdf", width = 6, height = 4)
+DotPlot(so.ChP, group.by = 'cell_type', features = c('Slc1a3','Ly86','P2ry6','Hmha1','Prptc','Pecam1','Plvap','Col3a1','Col1a2','Aqp1','Kcnj13','Enpp2')) + 
+        scale_colour_gradient2(low="steelblue", mid="lightgrey", high="darkgoldenrod1")  + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))
+
+## Loop through all cell populations for most visualizations
+# Initialize an empty data frame to store the results
+results_matrix <- data.frame(
+  cell_type = character(),
+  gene = character(),
+  p_value = numeric(),
+  avg_log2FC = numeric(),
+  p_value_adj = numeric(),
+  avg_expr_NTC = numeric(),
+  avg_expr_PPIB = numeric(),
+  stringsAsFactors = FALSE
+)
+
+Idents(so.ChP) <- so.ChP$orig.ident
+
+# Extract list of cell types, and intialize empty list
+unique_cell_types <- unique(as.character(so.ChP$cell_type))
+results <- list()
+
+# Loop through each cell type
+for (current_cell_type in unique_cell_types) {
+  print(current_cell_type)
+  
+  cairo_pdf(paste0("2025.01.23_ChP_volcano_plot_", current_cell_type, ".pdf"), width = 6, height = 6)
+
+  DEGs <- FindMarkers(subset(so.ChP, cell_type == current_cell_type), ident.1 = 'LUC')
+  DEGs$gene <- rownames(DEGs)
+  results[[current_cell_type]] <- DEGs
+  
+  # Calculate the average expression of "Ppib" for "LUC" and "PPIB"
+  avg_expr_LUC <- mean(GetAssayData(subset(so.ChP, cell_type == current_cell_type & orig.ident == 'LUC'), assay = "RNA", slot = "data")["Ppib", ])
+  avg_expr_PPIB <- mean(GetAssayData(subset(so.ChP, cell_type == current_cell_type & orig.ident == 'PPIB'), assay = "RNA", slot = "data")["Ppib", ])
+  
+  # Check if 'Ppib' is in the list of DEGs for the current cell type
+  pval_ppib <- NA
+  logFC_ppib <- NA
+  pval_ppib_adj <- NA
+  if ('Ppib' %in% DEGs$gene) {
+    pval_ppib <- DEGs["Ppib",]$p_val
+    pval_ppib_adj <- DEGs["Ppib",]$p_val_adj
+    logFC_ppib <- DEGs["Ppib",]$avg_log2FC
+  }
+  
+  
+  # Store these values in the results_matrix
+  results_matrix <- rbind(results_matrix, data.frame(
+    cell_type = current_cell_type,
+    gene = "Ppib",
+    p_value = pval_ppib,
+    avg_log2FC = logFC_ppib,
+    p_value_adj = pval_ppib_adj,
+    avg_expr_LUC = avg_expr_LUC,
+    avg_expr_PPIB = avg_expr_PPIB
+  ))
+
+
+  # Plotting code
+  DEGs <- subset(DEGs, p_val_adj < 0.05)
+  if (length(DEGs$p_val) > 0) {
+    DEGs$log10_pvalue <- -1 * log10(DEGs$p_val_adj)
+    DEGs$log10_pvalue[DEGs$log10_pvalue == Inf] <- 300
+    DEGs$gene <- rownames(DEGs)
+    DEGs$color <- 'black'
+    DEGs <- DEGs %>%
+      mutate(color = ifelse(gene == "Ppib", "red", color))
+
+    plot <- ggplot(DEGs, aes(x = -1 * avg_log2FC, y = log10_pvalue)) +
+      geom_point(aes(color = color)) +
+      scale_color_manual(values = c('black', 'red')) +
+      geom_text_repel(data = subset(DEGs, gene == "Ppib"), aes(label = gene), nudge_y = 50, nudge_x = 0) +
+      theme_prism() +
+      NoLegend() +
+      ggtitle(current_cell_type) +
+      xlab("Log 2 Fold Change") +
+      ylab("Log 10 Adjusted P Value")
+    
+    print(plot)
+    dev.off()
+    
+  cairo_pdf(paste0("2025.01.23_ChP_ridgeline_plot_", current_cell_type, ".pdf"), width = 6, height = 4)  
+  plot <- RidgePlot(subset(so.ChP, cell_type == current_cell_type), features = 'Ppib', cols = c('#C1CDCD90', '#AB82FF90')) + theme_prism() + ggtitle(current_cell_type)
+  print(plot)
+  dev.off()
+  }
+}
+
+# Write out the matrix to a CSV at the end of the analysis
+write.csv(results_matrix, "2025.01.23_DEG_results_matrix_with_expression_ChP.csv")
